@@ -1,0 +1,323 @@
+import { useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { PrintTemplate, TemplateSlot } from '@/types/database';
+import { Button } from '@/components/ui/button';
+import { Download, FileText, Plus } from 'lucide-react';
+import { format } from 'date-fns';
+import { toast } from 'sonner';
+
+interface TemplateWithSlots extends PrintTemplate {
+  slots: TemplateSlot[];
+}
+
+const parseTemplateSequence = (templateNumber: string) => {
+  const match = templateNumber.match(/(\d+)(?!.*\d)/);
+  return match ? Number(match[1]) : 0;
+};
+
+const sortTemplatesNewestFirst = (input: TemplateWithSlots[]) => {
+  return [...input].sort((a, b) => {
+    const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+    if (timeB !== timeA) return timeB - timeA;
+
+    const seqA = parseTemplateSequence(a.template_number);
+    const seqB = parseTemplateSequence(b.template_number);
+    if (seqB !== seqA) return seqB - seqA;
+
+    return b.id.localeCompare(a.id);
+  });
+};
+
+export default function Templated() {
+  const [templates, setTemplates] = useState<TemplateWithSlots[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  const fetchTemplates = async () => {
+    const { data: tmplData } = await supabase
+      .from('print_templates')
+      .select('*')
+      .in('status', ['filling', 'complete'])
+      .order('created_at', { ascending: false });
+
+    if (!tmplData) { setLoading(false); return; }
+
+    const templates = tmplData as unknown as PrintTemplate[];
+    const templateIds = templates.map(t => t.id);
+
+    const { data: slotsData } = await supabase
+      .from('template_slots')
+      .select('*')
+      .in('template_id', templateIds)
+      .order('position', { ascending: true });
+
+    const slots = (slotsData || []) as unknown as TemplateSlot[];
+
+    const merged: TemplateWithSlots[] = templates.map(t => ({
+      ...t,
+      slots: slots.filter(s => s.template_id === t.id),
+    }));
+
+    setTemplates(sortTemplatesNewestFirst(merged));
+    setLoading(false);
+  };
+
+  const handleDownload = async (template: TemplateWithSlots) => {
+    if (template.status !== 'complete') {
+      toast.error('Template is not complete yet');
+      return;
+    }
+
+    setDownloading(template.id);
+
+    try {
+      // Generate A4 canvas (2481 x 3507 at 300 DPI)
+      const canvas = document.createElement('canvas');
+      canvas.width = 2481;
+      canvas.height = 3507;
+      const ctx = canvas.getContext('2d')!;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Layout: 3 cols x 2 rows, each slot 600x1755
+      const slotW = 600;
+      const slotH = 1755;
+      const marginX = Math.floor((2481 - slotW * 3) / 4);
+      const marginY = Math.floor((3507 - slotH * 2) / 3);
+
+      const positions = [
+        [marginX, marginY],
+        [marginX * 2 + slotW, marginY],
+        [marginX * 3 + slotW * 2, marginY],
+        [marginX, marginY * 2 + slotH],
+        [marginX * 2 + slotW, marginY * 2 + slotH],
+        [marginX * 3 + slotW * 2, marginY * 2 + slotH],
+      ];
+
+      // Load and draw each slot image
+      for (let i = 0; i < 6; i++) {
+        const slot = template.slots.find(s => s.position === i + 1);
+        const [x, y] = positions[i];
+        if (slot?.photo_url) {
+          try {
+            const img = await loadImage(slot.photo_url);
+            ctx.drawImage(img, x, y, slotW, slotH);
+          } catch {
+            // Draw placeholder if image fails
+            ctx.fillStyle = '#F0F0F0';
+            ctx.fillRect(x, y, slotW, slotH);
+            ctx.fillStyle = '#999';
+            ctx.font = '24px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(slot.student_name || 'Empty', x + slotW / 2, y + slotH / 2);
+          }
+        } else {
+          ctx.strokeStyle = '#DDD';
+          ctx.strokeRect(x, y, slotW, slotH);
+        }
+
+        // 1px black border around each exported strip
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, slotW - 1, slotH - 1);
+      }
+
+      // Download / Share (mobile-friendly)
+      canvas.toBlob(async (blob) => {
+        const filename = `${template.template_number}.png`;
+        const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+        const isIOS = /iP(ad|hone|od)/.test(userAgent);
+        const isAndroid = /Android/i.test(userAgent);
+        const isMobile = isIOS || isAndroid;
+
+        if (blob) {
+          const file = new File([blob], filename, { type: 'image/png' });
+          const canShareFiles = isMobile
+            && typeof navigator !== 'undefined'
+            && 'canShare' in navigator
+            && (navigator as any).canShare({ files: [file] });
+
+          if (isMobile && typeof navigator !== 'undefined' && 'share' in navigator && canShareFiles) {
+            try {
+              await (navigator as any).share({
+                files: [file],
+                title: template.template_number,
+              });
+              return;
+            } catch {
+              // fall back to normal download
+            }
+          }
+
+          const url = URL.createObjectURL(blob);
+          if (isIOS) {
+            const opened = window.open(url, '_blank');
+            if (!opened) {
+              window.location.href = url;
+            }
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+            return;
+          }
+
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          a.rel = 'noopener';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          return;
+        }
+
+        // Fallback: dataURL (synchronous) for stricter browsers
+        const dataUrl = canvas.toDataURL('image/png');
+        if (isIOS) {
+          const opened = window.open(dataUrl, '_blank');
+          if (!opened) {
+            window.location.href = dataUrl;
+          }
+          return;
+        }
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = filename;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }, 'image/png');
+
+      // Update template status to downloaded
+      await supabase
+        .from('print_templates')
+        .update({ status: 'downloaded', downloaded_at: new Date().toISOString() } as any)
+        .eq('id', template.id);
+
+      // Move all orders in this template to 'to_print' status
+      const orderIds = template.slots
+        .filter(s => s.order_id)
+        .map(s => s.order_id!);
+      const uniqueOrderIds = [...new Set(orderIds)];
+
+      if (uniqueOrderIds.length > 0) {
+        await supabase
+          .from('orders')
+          .update({ order_status: 'to_print' } as any)
+          .in('id', uniqueOrderIds);
+      }
+
+      toast.success('Template downloaded! Orders moved to To Print.');
+      fetchTemplates();
+    } catch (err: any) {
+      toast.error('Download failed: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  if (loading) return <div className="flex-1 flex items-center justify-center text-muted-foreground">Loading...</div>;
+
+  return (
+    <div className="container mx-auto px-4 py-6">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-semibold text-foreground">Templated</h2>
+        <span className="text-sm text-muted-foreground">{templates.length} template(s)</span>
+      </div>
+
+      {templates.length === 0 ? (
+        <p className="text-center py-16 text-muted-foreground">No templates yet. Complete photo editing to generate templates.</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {templates.map((tmpl) => (
+            <div key={tmpl.id} className="panel p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-accent" />
+                  <span className="font-medium text-foreground">{tmpl.template_number}</span>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                  tmpl.status === 'complete' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
+                }`}>
+                  {tmpl.status === 'complete' ? `COMPLETE (${tmpl.slots_used}/6)` : `FILLING (${tmpl.slots_used}/6)`}
+                </span>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Created: {format(new Date(tmpl.created_at), 'MMM d, yyyy h:mm a')}
+              </p>
+
+              {/* Slot grid preview */}
+              <div className="grid grid-cols-3 gap-2">
+                {Array.from({ length: 6 }, (_, i) => {
+                  const slot = tmpl.slots.find(s => s.position === i + 1);
+                  const slotOrderCount = slot?.order_id
+                    ? tmpl.slots.filter(s => s.order_id === slot.order_id).length
+                    : 0;
+                  const packageLabel = slot?.package_type
+                    ? (slotOrderCount > 0 && slotOrderCount !== slot.package_type
+                      ? `Pkg ${slot.package_type} (${slotOrderCount}/${slot.package_type})`
+                      : `Pkg ${slot.package_type}`)
+                    : 'Pkg —';
+                  return (
+                    <div key={i} className="bg-secondary rounded border border-border aspect-square overflow-hidden flex flex-col">
+                      {slot ? (
+                        <>
+                          <div className="h-1/2 bg-muted border-b border-border">
+                            {slot.photo_url ? (
+                              <img src={slot.photo_url} alt={slot.student_name || 'Slot photo'} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">No Photo</div>
+                            )}
+                          </div>
+                          <div className="flex-1 p-1.5 text-center flex flex-col items-center justify-center leading-tight">
+                            <p className="text-[11px] font-medium text-foreground truncate w-full">{slot.student_name || '—'}</p>
+                            <p className="text-[10px] text-muted-foreground truncate w-full">{slot.grade || '—'}-{slot.section || '—'}</p>
+                            <p className="text-[10px] text-muted-foreground">{packageLabel}</p>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground gap-1">
+                          <Plus className="w-5 h-5" />
+                          <p className="text-[10px]">Empty</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {tmpl.status === 'complete' && (
+                <Button
+                  className="w-full bg-accent hover:bg-accent/90 text-accent-foreground"
+                  onClick={() => handleDownload(tmpl)}
+                  disabled={downloading === tmpl.id}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {downloading === tmpl.id ? 'Generating...' : 'Download 300DPI PNG'}
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}

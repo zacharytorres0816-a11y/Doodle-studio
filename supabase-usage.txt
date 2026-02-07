@@ -1,0 +1,52 @@
+src/lib/templateinsertion.ts:1:import { supabase } from '@/integrations/supabase/client';
+src/lib/templateinsertion.ts:44:    await supabase.from('template_slots').insert(slots as any).select();
+src/lib/templateinsertion.ts:49:    await supabase
+src/lib/templateinsertion.ts:64:  const { data } = await supabase
+src/lib/templateinsertion.ts:79:  const { count } = await supabase
+src/lib/templateinsertion.ts:86:  const { data: newTmpl, error } = await supabase
+src/pages/Upload.tsx:3:import { supabase } from '@/integrations/supabase/client';
+src/pages/Upload.tsx:23:    const { data } = await supabase.from('projects').select('*').eq('id', projectId!).single();
+src/pages/Upload.tsx:60:      const { error: uploadErr } = await supabase.storage
+src/pages/Upload.tsx:66:      const { data: urlData } = supabase.storage.from('project-images').getPublicUrl(filePath);
+src/pages/Upload.tsx:69:      await supabase
+src/pages/Upload.tsx:80:        await supabase
+src/pages/Gallery.tsx:4:import { supabase } from '@/integrations/supabase/client';
+src/pages/Gallery.tsx:25:    const { data, error } = await supabase
+src/pages/Gallery.tsx:43:      const { data, error } = await supabase
+src/pages/Projects.tsx:3:import { supabase } from '@/integrations/supabase/client';
+src/pages/Projects.tsx:22:    const { data, error } = await supabase
+src/pages/Projects.tsx:48:    const { error } = await supabase
+src/pages/Projects.tsx:56:        await supabase
+src/pages/Projects.tsx:68:    const { error } = await supabase.from('projects').delete().eq('id', projectId);
+src/pages/cashier/ToPrint.tsx:2:import { supabase } from '@/integrations/supabase/client';
+src/pages/cashier/ToPrint.tsx:22:    const { data: tmplData } = await supabase
+src/pages/cashier/ToPrint.tsx:35:      const { data: slotsData } = await supabase
+src/pages/cashier/ToPrint.tsx:53:    await supabase
+src/pages/cashier/ToPrint.tsx:61:      await supabase
+src/pages/cashier/Raffle.tsx:2:import { supabase } from '@/integrations/supabase/client';
+src/pages/cashier/Raffle.tsx:20:      supabase.from('raffle_entries').select('*').eq('is_winner', false).order('created_at'),
+src/pages/cashier/Raffle.tsx:21:      supabase.from('raffle_winners').select('*').order('won_at', { ascending: false }),
+src/pages/cashier/Raffle.tsx:129:          await supabase.from('raffle_entries').update({ is_winner: true, won_at: new Date().toISOString() } as any).eq('id', winner.id);
+src/pages/cashier/Raffle.tsx:130:          await supabase.from('raffle_winners').insert([{
+src/pages/cashier/Templated.tsx:2:import { supabase } from '@/integrations/supabase/client';
+src/pages/cashier/Templated.tsx:23:    const { data: tmplData } = await supabase
+src/pages/cashier/Templated.tsx:34:    const { data: slotsData } = await supabase
+src/pages/cashier/Templated.tsx:120:      await supabase
+src/pages/cashier/Templated.tsx:132:        await supabase
+src/pages/cashier/NewOrder.tsx:2:import { supabase } from '@/integrations/supabase/client';
+src/pages/cashier/NewOrder.tsx:62:      const { data: order, error: orderErr } = await supabase
+src/pages/cashier/NewOrder.tsx:85:      const { error: projErr } = await supabase
+src/pages/cashier/NewOrder.tsx:110:      const { error: raffleErr } = await supabase.from('raffle_entries').insert(entries as any).select();
+src/pages/cashier/Delivery.tsx:2:import { supabase } from '@/integrations/supabase/client';
+src/pages/cashier/Delivery.tsx:25:    const { data, error } = await supabase
+src/pages/cashier/Delivery.tsx:56:    const { error } = await supabase
+src/pages/Editor.tsx:4:import { supabase } from '@/integrations/supabase/client';
+src/pages/Editor.tsx:38:    const { data } = await supabase.from('projects').select('*').eq('id', projectId!).single();
+src/pages/Editor.tsx:67:    const { error } = await supabase
+src/pages/Editor.tsx:79:      await supabase
+src/integrations/supabase/client.ts:2:import { createClient } from '@supabase/supabase-js';
+src/integrations/supabase/client.ts:8:export const supabase = createClient<Database>(
+src/integrations/client.ts:2:import { createClient } from '@supabase/supabase-js';
+src/integrations/client.ts:8:// Import the supabase client like this:
+src/integrations/client.ts:9:// import { supabase } from "@/integrations/supabase/client";
+src/integrations/client.ts:11:export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
