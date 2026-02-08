@@ -79,7 +79,7 @@ export default function Editor() {
       const editedStripBlob = await frameRef.current?.exportStripBlob();
       if (editedStripBlob) {
         const uploadRes = await uploadWithRetry(projectId, editedStripBlob, { kind: 'edited-strip' });
-        editedStripUrl = normalizeMediaPath(uploadRes.storageKey) || uploadRes.publicUrl;
+        editedStripUrl = uploadRes.publicUrl || normalizeMediaPath(uploadRes.storageKey);
       }
 
       if (!editedStripUrl) {

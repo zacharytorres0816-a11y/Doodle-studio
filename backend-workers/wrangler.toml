@@ -1,0 +1,38 @@
+name = "my-app-backend"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Required secrets (set with `wrangler secret put <NAME>`):
+# DATABASE_URL
+# SUPABASE_ANON_KEY
+# SUPABASE_SERVICE_ROLE_KEY (optional; only if needed for privileged Supabase APIs)
+# R2_PUBLIC_URL (recommended: https://pub-xxxxx.r2.dev)
+
+# R2 Bucket Binding
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "my-app-media"
+
+[[r2_buckets]]
+binding = "PREVIEW_BUCKET"
+bucket_name = "my-app-media-preview"
+
+# Shared non-secret vars
+[vars]
+ALLOWED_ORIGINS = "https://my-app.pages.dev,https://*.pages.dev,http://localhost:5173"
+ENVIRONMENT = "production"
+
+[env.development]
+name = "my-app-backend-dev"
+
+[env.development.vars]
+ALLOWED_ORIGINS = "http://localhost:5173,https://*.pages.dev"
+ENVIRONMENT = "development"
+
+[env.production]
+name = "my-app-backend-prod"
+
+[env.production.vars]
+ALLOWED_ORIGINS = "https://my-app.pages.dev,https://*.pages.dev,http://localhost:5173"
+ENVIRONMENT = "production"

@@ -64,7 +64,7 @@ export default function Upload() {
 
     try {
       const uploadRes = await uploadWithRetry(projectId, selectedFile, { kind: 'original' });
-      const storedPhotoUrl = normalizeMediaPath(uploadRes.storageKey) || uploadRes.publicUrl;
+      const storedPhotoUrl = uploadRes.publicUrl || normalizeMediaPath(uploadRes.storageKey);
 
       // Update project
       await api.projects.update(projectId, {

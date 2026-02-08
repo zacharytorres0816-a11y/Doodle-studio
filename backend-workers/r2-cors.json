@@ -1,0 +1,13 @@
+[
+  {
+    "AllowedOrigins": [
+      "https://my-app.pages.dev",
+      "https://*.pages.dev",
+      "http://localhost:5173"
+    ],
+    "AllowedMethods": ["GET", "HEAD", "PUT", "POST", "DELETE"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag", "Content-Length", "Content-Type"],
+    "MaxAgeSeconds": 3600
+  }
+]
