@@ -103,5 +103,5 @@ export function registerUploadRoutes(app) {
   });
 
   app.get('/uploads/*', (c) => serveUploadObject(c, false));
-  app.head('/uploads/*', (c) => serveUploadObject(c, true));
+  app.on('HEAD', '/uploads/*', (c) => serveUploadObject(c, true));
 }
