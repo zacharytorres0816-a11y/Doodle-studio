@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Upload as UploadIcon, Image } from 'lucide-react';
 import { uploadWithRetry } from '@/lib/storageUpload';
 import { api } from '@/lib/api';
+import { toast } from 'sonner';
 
 export default function Upload() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -82,6 +83,7 @@ export default function Upload() {
       navigate(`/editor/${projectId}`);
     } catch (err: any) {
       console.error('Upload failed:', err);
+      toast.error(err?.message || 'Upload failed');
     } finally {
       setUploading(false);
     }

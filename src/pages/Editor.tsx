@@ -40,6 +40,11 @@ export default function Editor() {
     const data = await api.projects.get(projectId!);
     if (data) {
       const p = data as unknown as Project;
+      if (!p.photo_url) {
+        toast.info('Please upload a photo first');
+        navigate(`/projects/upload/${projectId}`);
+        return;
+      }
       setProject(p);
       setImage(p.photo_url);
       if (p.frame_color) setFrameColor(p.frame_color);
