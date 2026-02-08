@@ -10,6 +10,20 @@ const API_HOST = (() => {
 })();
 const IS_NGROK = /ngrok(-free)?\.dev$/i.test(API_HOST);
 
+function withNgrokBypass(url: string) {
+  if (!IS_NGROK) return url;
+  try {
+    const parsed = new URL(url);
+    if (!parsed.searchParams.has('ngrok-skip-browser-warning')) {
+      parsed.searchParams.set('ngrok-skip-browser-warning', 'true');
+    }
+    return parsed.toString();
+  } catch {
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}ngrok-skip-browser-warning=true`;
+  }
+}
+
 type QueryValue = string | number | boolean | null | undefined;
 
 function withQuery(path: string, query?: Record<string, QueryValue | QueryValue[]>) {
@@ -39,12 +53,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers.set('Content-Type', 'application/json');
   }
 
-  if (IS_NGROK) {
-    // Force ngrok browser-warning bypass on every API request.
-    headers.set('ngrok-skip-browser-warning', 'true');
-  }
-
-  const finalUrl = `${API_URL}${path}`;
+  // Use query-param bypass for ngrok to avoid custom-header preflight fragility.
+  const finalUrl = withNgrokBypass(`${API_URL}${path}`);
   const fetchInit: RequestInit = {
     ...options,
     headers,
@@ -199,9 +209,10 @@ export const api = {
       const fileName = file instanceof File ? file.name : `${kind}.png`;
       formData.append('file', file, fileName);
 
-      const response = await fetch(`${API_URL}/api/uploads/project-image`, {
+      const response = await fetch(withNgrokBypass(`${API_URL}/api/uploads/project-image`), {
         method: 'POST',
-        headers: IS_NGROK ? { 'ngrok-skip-browser-warning': 'true' } : undefined,
+        mode: 'cors',
+        cache: IS_NGROK ? 'no-store' : undefined,
         body: formData,
       });
 

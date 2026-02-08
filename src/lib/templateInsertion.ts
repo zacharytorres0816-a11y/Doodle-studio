@@ -196,11 +196,20 @@ async function upsertExistingOrderSlots(params: {
 
   slotsToDrop.forEach((slot) => touchedTemplates.add(slot.template_id));
   if (slotsToDrop.length > 0) {
-    await api.templateSlots.deleteMany(slotsToDrop.map((slot) => slot.id));
+    try {
+      await api.templateSlots.deleteMany(slotsToDrop.map((slot) => slot.id));
+    } catch (error) {
+      // Backward compatibility: older backend builds may not expose this route yet.
+      console.warn('template-slots cleanup skipped:', error);
+    }
   }
 
   if (slotsToReuse.length === 0) {
-    await syncTemplateUsage(Array.from(touchedTemplates));
+    try {
+      await syncTemplateUsage(Array.from(touchedTemplates));
+    } catch (error) {
+      console.warn('template usage sync skipped:', error);
+    }
     return 0;
   }
 
@@ -219,7 +228,11 @@ async function upsertExistingOrderSlots(params: {
   );
 
   slotsToReuse.forEach((slot) => touchedTemplates.add(slot.template_id));
-  await syncTemplateUsage(Array.from(touchedTemplates));
+  try {
+    await syncTemplateUsage(Array.from(touchedTemplates));
+  } catch (error) {
+    console.warn('template usage sync skipped:', error);
+  }
 
   return slotsToReuse.length;
 }
