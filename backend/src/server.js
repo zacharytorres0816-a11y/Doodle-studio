@@ -25,12 +25,29 @@ const allowedOrigins = (process.env.FRONTEND_ORIGIN || '')
   .split(',')
   .map((item) => item.trim())
   .filter(Boolean);
+const allowAllOrigins = allowedOrigins.includes('*');
+const wildcardSuffixes = allowedOrigins
+  .filter((origin) => origin.startsWith('*.'))
+  .map((origin) => origin.slice(1).toLowerCase());
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (allowAllOrigins) return true;
+  if (allowedOrigins.includes(origin)) return true;
+
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return wildcardSuffixes.some((suffix) => host.endsWith(suffix));
+  } catch {
+    return false;
+  }
+}
 
 app.set('trust proxy', true);
 
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+    if (allowedOrigins.length === 0 || isAllowedOrigin(origin)) {
       callback(null, true);
       return;
     }
