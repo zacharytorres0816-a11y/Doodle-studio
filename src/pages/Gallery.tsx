@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Plus, LogOut, Image, Camera } from 'lucide-react';
+import { api } from '@/lib/api';
 
 interface Template {
   id: string;
@@ -22,12 +22,8 @@ export default function Gallery() {
   }, []);
 
   const fetchTemplates = async () => {
-    const { data, error } = await supabase
-      .from('templates')
-      .select('*')
-      .order('created_at', { ascending: true });
-
-    if (!error && data) {
+    const data = await api.templates.list({ orderBy: 'created_at', orderDir: 'asc' });
+    if (data) {
       setTemplates(data);
     }
     setLoading(false);
@@ -40,15 +36,8 @@ export default function Gallery() {
   const handleAddTemplate = async () => {
     const name = prompt('Enter template name:');
     if (name) {
-      const { data, error } = await supabase
-        .from('templates')
-        .insert({ name })
-        .select()
-        .single();
-      
-      if (!error && data) {
-        setTemplates([...templates, data]);
-      }
+      const data = await api.templates.create({ name });
+      setTemplates([...templates, data]);
     }
   };
 

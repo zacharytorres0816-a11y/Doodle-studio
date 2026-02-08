@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { RaffleEntry, RaffleWinner } from '@/types/database';
 import { Button } from '@/components/ui/button';
 import { Gift, RotateCcw, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
+import { api } from '@/lib/api';
 
 export default function Raffle() {
   const [entries, setEntries] = useState<RaffleEntry[]>([]);
@@ -17,11 +17,11 @@ export default function Raffle() {
 
   const fetchData = async () => {
     const [entriesRes, winnersRes] = await Promise.all([
-      supabase.from('raffle_entries').select('*').eq('is_winner', false).order('created_at'),
-      supabase.from('raffle_winners').select('*').order('won_at', { ascending: false }),
+      api.raffleEntries.list({ isWinner: false }),
+      api.raffleWinners.list(),
     ]);
-    if (entriesRes.data) setEntries(entriesRes.data as unknown as RaffleEntry[]);
-    if (winnersRes.data) setWinners(winnersRes.data as unknown as RaffleWinner[]);
+    if (entriesRes) setEntries(entriesRes as unknown as RaffleEntry[]);
+    if (winnersRes) setWinners(winnersRes as unknown as RaffleWinner[]);
   };
 
   const activeEntries = entries.filter((e) => !e.is_winner);
@@ -126,14 +126,14 @@ export default function Raffle() {
 
         // Record winner
         (async () => {
-          await supabase.from('raffle_entries').update({ is_winner: true, won_at: new Date().toISOString() } as any).eq('id', winner.id);
-          await supabase.from('raffle_winners').insert([{
+          await api.raffleEntries.update(winner.id, { is_winner: true, won_at: new Date().toISOString() } as any);
+          await api.raffleWinners.create({
             entry_id: winner.id,
             order_id: winner.order_id,
             customer_name: winner.customer_name,
             grade: winner.grade,
             section: winner.section,
-          }] as any).select();
+          } as any);
           fetchData();
         })();
 

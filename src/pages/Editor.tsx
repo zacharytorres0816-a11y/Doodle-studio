@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { Project } from '@/types/database';
 import { Button } from '@/components/ui/button';
 import { Toolbar, Tool } from '@/components/editor/Toolbar';
@@ -14,6 +13,7 @@ import { ArrowLeft, Save, Trash2, Camera, ZoomIn, ZoomOut, RotateCcw } from 'luc
 import { toast } from 'sonner';
 import { insertPhotoIntoTemplate } from '@/lib/templateInsertion';
 import { uploadWithRetry } from '@/lib/storageUpload';
+import { api } from '@/lib/api';
 
 export default function Editor() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -37,7 +37,7 @@ export default function Editor() {
   }, [projectId]);
 
   const fetchProject = async () => {
-    const { data } = await supabase.from('projects').select('*').eq('id', projectId!).single();
+    const data = await api.projects.get(projectId!);
     if (data) {
       const p = data as unknown as Project;
       setProject(p);
@@ -72,15 +72,8 @@ export default function Editor() {
     try {
       const editedStripBlob = await frameRef.current?.exportStripBlob();
       if (editedStripBlob) {
-        const stripPath = `${projectId}/edited-strip-${Date.now()}.png`;
-        await uploadWithRetry(supabase, 'project-images', stripPath, editedStripBlob, {
-          upsert: true,
-          contentType: 'image/png',
-          cacheControl: '3600',
-        });
-
-        const { data: stripUrlData } = supabase.storage.from('project-images').getPublicUrl(stripPath);
-        editedStripUrl = stripUrlData.publicUrl;
+        const uploadRes = await uploadWithRetry(projectId, editedStripBlob, { kind: 'edited-strip' });
+        editedStripUrl = uploadRes.publicUrl;
       }
 
       if (!editedStripUrl) {
@@ -91,49 +84,43 @@ export default function Editor() {
       return;
     }
 
-    const { error } = await supabase
-      .from('projects')
-      .update({
+    await api.projects.update(projectId, {
         canvas_data: JSON.parse(JSON.stringify(canvasData)),
         frame_color: frameColor,
         thumbnail_url: editedStripUrl,
         last_edited_at: new Date().toISOString(),
         status: 'completed',
         completed_at: new Date().toISOString(),
-      } as any)
-      .eq('id', projectId);
+      } as any);
 
     if (project.order_id) {
-      await supabase
-        .from('orders')
-        .update({ order_status: 'completed', photo_status: 'completed', project_completed_date: new Date().toISOString() } as any)
-        .eq('id', project.order_id);
+      await api.orders.update(project.order_id, {
+        order_status: 'completed',
+        photo_status: 'completed',
+        project_completed_date: new Date().toISOString(),
+      } as any);
     }
 
-    if (error) {
-      toast.error('Failed to save project');
-    } else {
-      // Auto-insert into A4 template
-      if (project.order_id && editedStripUrl && project.customer_name) {
-        try {
-          await insertPhotoIntoTemplate(
-            project.order_id,
-            projectId,
-            editedStripUrl,
-            project.customer_name,
-            project.grade || '',
-            project.section || '',
-            project.package_type || 2
-          );
-          toast.success('Project saved & added to print template!');
-        } catch (err: any) {
-          toast.success('Project saved!');
-          toast.error(err?.message || 'Template insertion failed. Check print_templates/template_slots policies.');
-          console.error('Template insertion error:', err);
-        }
-      } else {
+    // Auto-insert into A4 template
+    if (project.order_id && editedStripUrl && project.customer_name) {
+      try {
+        await insertPhotoIntoTemplate(
+          project.order_id,
+          projectId,
+          editedStripUrl,
+          project.customer_name,
+          project.grade || '',
+          project.section || '',
+          project.package_type || 2
+        );
+        toast.success('Project saved & added to print template!');
+      } catch (err: any) {
         toast.success('Project saved!');
+        toast.error(err?.message || 'Template insertion failed. Check API and DB connectivity.');
+        console.error('Template insertion error:', err);
       }
+    } else {
+      toast.success('Project saved!');
     }
   };
 

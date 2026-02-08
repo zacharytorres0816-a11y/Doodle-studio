@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { PrintTemplate, TemplateSlot } from '@/types/database';
 import { Button } from '@/components/ui/button';
 import { Plus, Printer } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { api } from '@/lib/api';
 
 interface TemplateWithSlots extends PrintTemplate {
   slots: TemplateSlot[];
@@ -38,11 +38,11 @@ export default function ToPrint() {
   }, []);
 
   const fetchTemplates = async () => {
-    const { data: tmplData } = await supabase
-      .from('print_templates')
-      .select('*')
-      .eq('status', 'downloaded')
-      .order('downloaded_at', { ascending: false });
+    const tmplData = await api.printTemplates.list({
+      status: 'downloaded',
+      orderBy: 'downloaded_at',
+      orderDir: 'desc',
+    });
 
     if (!tmplData) { setLoading(false); return; }
 
@@ -51,11 +51,11 @@ export default function ToPrint() {
 
     let slots: TemplateSlot[] = [];
     if (templateIds.length > 0) {
-      const { data: slotsData } = await supabase
-        .from('template_slots')
-        .select('*')
-        .in('template_id', templateIds)
-        .order('position', { ascending: true });
+      const slotsData = await api.templateSlots.list({
+        templateIds,
+        orderBy: 'position',
+        orderDir: 'asc',
+      });
       slots = (slotsData || []) as unknown as TemplateSlot[];
     }
 
@@ -70,33 +70,20 @@ export default function ToPrint() {
   const handleMarkPrinted = async (template: TemplateWithSlots) => {
     if (!confirm(`Mark ${template.template_number} as printed?`)) return;
 
-    const { error: templateError } = await supabase
-      .from('print_templates')
-      .update({ status: 'printed', printed_at: new Date().toISOString() } as any)
-      .eq('id', template.id);
-    if (templateError) {
-      toast.error('Failed to mark template as printed.');
-      return;
-    }
+    await api.printTemplates.update(template.id, {
+      status: 'printed',
+      printed_at: new Date().toISOString(),
+    } as any);
 
     // Move orders to packed only when all slots for that order are printed
     const orderIds = [...new Set(template.slots.filter(s => s.order_id).map(s => s.order_id!))];
     if (orderIds.length > 0) {
-      const { data: ordersData } = await supabase
-        .from('orders')
-        .select('id, package_type')
-        .in('id', orderIds);
+      const ordersData = await api.orders.list({ ids: orderIds });
 
-      const { data: printedSlots } = await supabase
-        .from('template_slots')
-        .select('order_id, print_templates(status)')
-        .in('order_id', orderIds)
-        .eq('print_templates.status', 'printed');
-
+      const printedSummary = await api.templateSlots.printedSummary(orderIds);
       const printedCounts = new Map<string, number>();
-      (printedSlots || []).forEach((slot: any) => {
-        if (!slot.order_id) return;
-        printedCounts.set(slot.order_id, (printedCounts.get(slot.order_id) || 0) + 1);
+      (printedSummary || []).forEach((row: any) => {
+        printedCounts.set(row.order_id, row.printed_count ?? 0);
       });
 
       const readyIds = (ordersData || [])
@@ -104,10 +91,10 @@ export default function ToPrint() {
         .map((o: any) => o.id);
 
       if (readyIds.length > 0) {
-        await supabase
-          .from('orders')
-          .update({ order_status: 'packed', packed_date: new Date().toISOString() } as any)
-          .in('id', readyIds);
+        await api.orders.bulkUpdate(readyIds, {
+          order_status: 'packed',
+          packed_date: new Date().toISOString(),
+        } as any);
       }
     }
 

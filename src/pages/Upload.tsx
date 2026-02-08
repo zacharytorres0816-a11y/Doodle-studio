@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { Project } from '@/types/database';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Upload as UploadIcon, Image } from 'lucide-react';
 import { uploadWithRetry } from '@/lib/storageUpload';
+import { api } from '@/lib/api';
 
 export default function Upload() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -22,7 +22,7 @@ export default function Upload() {
   }, [projectId]);
 
   const fetchProject = async () => {
-    const { data } = await supabase.from('projects').select('*').eq('id', projectId!).single();
+    const data = await api.projects.get(projectId!);
     if (data) setProject(data as unknown as Project);
   };
 
@@ -61,37 +61,22 @@ export default function Upload() {
     setUploading(true);
 
     try {
-      // Upload to storage bucket
-      const ext = selectedFile.name.split('.').pop();
-      const filePath = `${projectId}/original.${ext}`;
-      await uploadWithRetry(supabase, 'project-images', filePath, selectedFile, {
-        upsert: true,
-        contentType: selectedFile.type || 'application/octet-stream',
-        cacheControl: '3600',
-      });
-
-      const { data: urlData } = supabase.storage.from('project-images').getPublicUrl(filePath);
+      const uploadRes = await uploadWithRetry(projectId, selectedFile, { kind: 'original' });
 
       // Update project
-      await supabase
-        .from('projects')
-        .update({
-          photo_url: urlData.publicUrl,
-          status: 'in_progress',
-          photo_uploaded_at: new Date().toISOString(),
-        } as any)
-        .eq('id', projectId);
+      await api.projects.update(projectId, {
+        photo_url: uploadRes.publicUrl,
+        status: 'in_progress',
+        photo_uploaded_at: new Date().toISOString(),
+      } as any);
 
       // Update order
       if (project?.order_id) {
-        await supabase
-          .from('orders')
-          .update({
-            order_status: 'photo_uploaded',
-            photo_status: 'uploaded',
-            photo_uploaded_date: new Date().toISOString(),
-          } as any)
-          .eq('id', project.order_id);
+        await api.orders.update(project.order_id, {
+          order_status: 'photo_uploaded',
+          photo_status: 'uploaded',
+          photo_uploaded_date: new Date().toISOString(),
+        } as any);
       }
 
       navigate(`/editor/${projectId}`);

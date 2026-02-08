@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { PrintTemplate, TemplateSlot } from '@/types/database';
 import { Button } from '@/components/ui/button';
 import { Download, FileText, Plus } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { api } from '@/lib/api';
 
 interface TemplateWithSlots extends PrintTemplate {
   slots: TemplateSlot[];
@@ -39,22 +39,22 @@ export default function Templated() {
   }, []);
 
   const fetchTemplates = async () => {
-    const { data: tmplData } = await supabase
-      .from('print_templates')
-      .select('*')
-      .in('status', ['filling', 'complete'])
-      .order('created_at', { ascending: false });
+    const tmplData = await api.printTemplates.list({
+      statuses: ['filling', 'complete'],
+      orderBy: 'created_at',
+      orderDir: 'desc',
+    });
 
     if (!tmplData) { setLoading(false); return; }
 
     const templates = tmplData as unknown as PrintTemplate[];
     const templateIds = templates.map(t => t.id);
 
-    const { data: slotsData } = await supabase
-      .from('template_slots')
-      .select('*')
-      .in('template_id', templateIds)
-      .order('position', { ascending: true });
+    const slotsData = await api.templateSlots.list({
+      templateIds,
+      orderBy: 'position',
+      orderDir: 'asc',
+    });
 
     const slots = (slotsData || []) as unknown as TemplateSlot[];
 
@@ -196,10 +196,10 @@ export default function Templated() {
       }, 'image/png');
 
       // Update template status to downloaded
-      await supabase
-        .from('print_templates')
-        .update({ status: 'downloaded', downloaded_at: new Date().toISOString() } as any)
-        .eq('id', template.id);
+      await api.printTemplates.update(template.id, {
+        status: 'downloaded',
+        downloaded_at: new Date().toISOString(),
+      } as any);
 
       // Move all orders in this template to 'to_print' status
       const orderIds = template.slots
@@ -208,10 +208,7 @@ export default function Templated() {
       const uniqueOrderIds = [...new Set(orderIds)];
 
       if (uniqueOrderIds.length > 0) {
-        await supabase
-          .from('orders')
-          .update({ order_status: 'to_print' } as any)
-          .in('id', uniqueOrderIds);
+        await api.orders.bulkUpdate(uniqueOrderIds, { order_status: 'to_print' } as any);
       }
 
       toast.success('Template downloaded! Orders moved to To Print.');

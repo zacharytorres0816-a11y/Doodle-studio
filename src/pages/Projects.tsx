@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { Project } from '@/types/database';
 import { ProjectCard } from '@/components/projects/ProjectCard';
 import { ProjectFilters } from '@/components/projects/ProjectFilters';
 import { toast } from 'sonner';
+import { api } from '@/lib/api';
 
 export default function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -19,14 +19,8 @@ export default function Projects() {
   }, []);
 
   const fetchProjects = async () => {
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setProjects(data as unknown as Project[]);
-    }
+    const data = await api.projects.list({ orderBy: 'created_at', orderDir: 'desc' });
+    setProjects(data as unknown as Project[]);
     setLoading(false);
   };
 
@@ -45,31 +39,32 @@ export default function Projects() {
   }, [projects, statusFilter, packageFilter, searchQuery]);
 
   const handleMarkComplete = async (projectId: string) => {
-    const { error } = await supabase
-      .from('projects')
-      .update({ status: 'completed', completed_at: new Date().toISOString() } as any)
-      .eq('id', projectId);
-
-    if (!error) {
-      const project = projects.find((p) => p.id === projectId);
-      if (project?.order_id) {
-        await supabase
-          .from('orders')
-          .update({ order_status: 'completed', photo_status: 'completed', project_completed_date: new Date().toISOString() } as any)
-          .eq('id', project.order_id);
-      }
-      toast.success('Project marked as completed');
-      fetchProjects();
+    await api.projects.update(projectId, { status: 'completed', completed_at: new Date().toISOString() } as any);
+    const project = projects.find((p) => p.id === projectId);
+    if (project?.order_id) {
+      await api.orders.update(project.order_id, {
+        order_status: 'completed',
+        photo_status: 'completed',
+        project_completed_date: new Date().toISOString(),
+      } as any);
     }
+    toast.success('Project marked as completed');
+    fetchProjects();
   };
 
   const handleDelete = async (projectId: string) => {
     if (!confirm('Are you sure you want to delete this project?')) return;
-    const { error } = await supabase.from('projects').delete().eq('id', projectId);
-    if (!error) {
+    const snapshot = projects;
+    setProjects((prev) => prev.filter((project) => project.id !== projectId));
+    try {
+      await api.projects.remove(projectId);
       toast.success('Project deleted');
-      fetchProjects();
+    } catch (error) {
+      setProjects(snapshot);
+      toast.error(error instanceof Error ? error.message : 'Failed to delete project');
+      return;
     }
+    fetchProjects();
   };
 
   if (loading) {

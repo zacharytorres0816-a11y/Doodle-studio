@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { api } from '@/lib/api';
 
 const RAFFLE_PRICE = 5;
 
@@ -59,9 +59,7 @@ export default function NewOrder() {
         totalAmount
       });
       // 1. Create order
-      const { data: order, error: orderErr } = await supabase
-        .from('orders')
-        .insert([{
+      const order = await api.orders.create({
           customer_name: customerName.trim(),
           grade: grade.trim(),
           section: section.trim(),
@@ -75,16 +73,10 @@ export default function NewOrder() {
           total_amount: totalAmount,
           payment_method: paymentMethod,
           gcash_reference: paymentMethod === 'gcash' ? gcashReference : null,
-        }] as any)
-        .select()
-        .single();
-
-      if (orderErr || !order) throw orderErr;
+        } as any);
 
       // 2. Auto-create pending project
-      const { error: projErr } = await supabase
-        .from('projects')
-        .insert([{
+      await api.projects.create({
           name: `${customerName.trim()} - ${grade} ${section}`,
           order_id: order.id,
           customer_name: customerName.trim(),
@@ -93,10 +85,7 @@ export default function NewOrder() {
           package_type: packageType,
           design_type: designType,
           status: 'awaiting_photo',
-        }] as any)
-        .select()
-
-      if (projErr) throw projErr;
+        } as any);
 
       // 3. Create raffle entries
       const entries = Array.from({ length: totalRaffles }, (_, i) => ({
@@ -107,8 +96,7 @@ export default function NewOrder() {
         raffle_number: i + 1,
       }));
 
-      const { error: raffleErr } = await supabase.from('raffle_entries').insert(entries as any).select();
-      if (raffleErr) throw raffleErr;
+      await api.raffleEntries.bulkCreate(entries as any);
 
       toast.success('Order created! Project added to Projects tab.');
 

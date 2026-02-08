@@ -1,19 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ChevronDown, ChevronRight, Search, Truck } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-
-interface DeliverySlotSummary {
-  order_id: string | null;
-  print_templates?: {
-    printed_at?: string | null;
-    template_number?: string;
-  } | null;
-}
+import { api } from '@/lib/api';
 
 interface DeliveryOrder {
   order_id: string;
@@ -40,13 +32,13 @@ export default function Delivery() {
   const fetchOrders = async () => {
     setLoading(true);
 
-    const { data: ordersData, error: ordersError } = await supabase
-      .from('orders')
-      .select('id, customer_name, grade, section, package_type, order_status, delivery_date, packed_date')
-      .eq('order_status', 'packed')
-      .order('packed_date', { ascending: true });
+    const ordersData = await api.orders.list({
+      status: 'packed',
+      orderBy: 'packed_date',
+      orderDir: 'asc',
+    });
 
-    if (ordersError || !ordersData) {
+    if (!ordersData) {
       setLoading(false);
       return;
     }
@@ -55,28 +47,21 @@ export default function Delivery() {
     const slotSummary = new Map<string, { count: number; templates: Set<string>; printedAt: string | null }>();
 
     if (orderIds.length > 0) {
-      const { data: slotsData } = await supabase
-        .from('template_slots')
-        .select('order_id, print_templates(status, printed_at, template_number)')
-        .in('order_id', orderIds)
-        .eq('print_templates.status', 'printed');
-
-      const slots = (slotsData || []) as unknown as DeliverySlotSummary[];
-      slots.forEach((slot) => {
-        if (!slot.order_id) return;
-        const existing = slotSummary.get(slot.order_id) || {
+      const summaryRows = await api.templateSlots.printedSummary(orderIds);
+      (summaryRows || []).forEach((row: any) => {
+        if (!row.order_id) return;
+        const existing = slotSummary.get(row.order_id) || {
           count: 0,
           templates: new Set<string>(),
           printedAt: null as string | null,
         };
 
-        existing.count += 1;
-        const templateNumber = slot.print_templates?.template_number;
-        if (templateNumber) existing.templates.add(templateNumber);
-        if (!existing.printedAt && slot.print_templates?.printed_at) {
-          existing.printedAt = slot.print_templates.printed_at;
+        existing.count = row.printed_count ?? 0;
+        (row.template_numbers || []).forEach((value: string) => existing.templates.add(value));
+        if (!existing.printedAt && row.printed_at) {
+          existing.printedAt = row.printed_at;
         }
-        slotSummary.set(slot.order_id, existing);
+        slotSummary.set(row.order_id, existing);
       });
     }
 
@@ -125,20 +110,15 @@ export default function Delivery() {
 
   const handleDeliveryComplete = async () => {
     if (!deliveryModal) return;
-    const { error } = await supabase
-      .from('orders')
-      .update({
+    await api.orders.update(deliveryModal.order_id, {
         order_status: 'delivered',
         delivery_date: new Date().toISOString(),
         delivery_recipient: null,
         delivery_notes: null,
-      } as any)
-      .eq('id', deliveryModal.order_id);
-    if (!error) {
-      toast.success('Delivery marked complete');
-      setDeliveryModal(null);
-      fetchOrders();
-    }
+      } as any);
+    toast.success('Delivery marked complete');
+    setDeliveryModal(null);
+    fetchOrders();
   };
 
   if (loading) return <div className="flex-1 flex items-center justify-center text-muted-foreground">Loading...</div>;
