@@ -6,6 +6,7 @@ import { ArrowLeft, Upload as UploadIcon, Image } from 'lucide-react';
 import { uploadWithRetry } from '@/lib/storageUpload';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+import { normalizeMediaPath } from '@/lib/mediaUrl';
 
 export default function Upload() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -63,10 +64,11 @@ export default function Upload() {
 
     try {
       const uploadRes = await uploadWithRetry(projectId, selectedFile, { kind: 'original' });
+      const storedPhotoUrl = normalizeMediaPath(uploadRes.storageKey) || uploadRes.publicUrl;
 
       // Update project
       await api.projects.update(projectId, {
-        photo_url: uploadRes.publicUrl,
+        photo_url: storedPhotoUrl,
         status: 'in_progress',
         photo_uploaded_at: new Date().toISOString(),
       } as any);

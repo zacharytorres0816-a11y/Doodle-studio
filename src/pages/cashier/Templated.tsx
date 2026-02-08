@@ -5,6 +5,7 @@ import { Download, FileText, Plus } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { resolveMediaUrl } from '@/lib/mediaUrl';
 
 interface TemplateWithSlots extends PrintTemplate {
   slots: TemplateSlot[];
@@ -107,7 +108,7 @@ export default function Templated() {
         const [x, y] = positions[i];
         if (slot?.photo_url) {
           try {
-            const img = await loadImage(slot.photo_url);
+            const img = await loadImage(resolveMediaUrl(slot.photo_url) || slot.photo_url);
             ctx.drawImage(img, x, y, slotW, slotH);
           } catch {
             // Draw placeholder if image fails
@@ -269,7 +270,7 @@ export default function Templated() {
                         <>
                           <div className="h-1/2 bg-muted border-b border-border">
                             {slot.photo_url ? (
-                              <img src={slot.photo_url} alt={slot.student_name || 'Slot photo'} className="w-full h-full object-cover" />
+                              <img src={resolveMediaUrl(slot.photo_url) || slot.photo_url} alt={slot.student_name || 'Slot photo'} className="w-full h-full object-cover" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">No Photo</div>
                             )}

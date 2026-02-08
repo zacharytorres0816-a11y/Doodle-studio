@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { Tool } from './Toolbar';
 import logoNoBackground from '@/assets/logo-no-background.png';
+import { resolveMediaUrl } from '@/lib/mediaUrl';
 
 interface Point {
   x: number;
@@ -113,6 +114,19 @@ const distanceBetween = (a: Point, b: Point) => {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const NGROK_HOST_RE = /ngrok(-free)?\.dev$/i;
+
+const isSameTransform = (a: ImageTransform, b: ImageTransform) =>
+  a.offsetX === b.offsetX && a.offsetY === b.offsetY && a.scale === b.scale;
+
+const loadImageElement = (src: string, useCors: boolean) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    if (useCors) img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
+    img.src = src;
+  });
 
 const normalizeImageTransform = (input: unknown): ImageTransform => {
   if (!input || typeof input !== 'object') return DEFAULT_IMAGE_TRANSFORM;
@@ -582,26 +596,75 @@ export const PhotoFrame = forwardRef<PhotoFrameRef, PhotoFrameProps>(({
     }
 
     let cancelled = false;
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
+    let objectUrl: string | null = null;
 
-    img.onload = () => {
-      if (cancelled) return;
-      loadedImageRef.current = img;
-      setImageTransform((prev) => clampImageTransform(img, PRIMARY_SLOT_RECT, prev));
-      renderBase();
+    const load = async () => {
+      const resolvedUrl = resolveMediaUrl(image) || image;
+      let srcForCanvas = resolvedUrl;
+      let loadedFromBlob = false;
+
+      try {
+        if (/^https?:\/\//i.test(resolvedUrl)) {
+          try {
+            const headers: Record<string, string> = {};
+            const host = new URL(resolvedUrl).hostname;
+            if (NGROK_HOST_RE.test(host)) {
+              headers['ngrok-skip-browser-warning'] = 'true';
+            }
+
+            const response = await fetch(resolvedUrl, {
+              headers,
+              mode: 'cors',
+            });
+
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.startsWith('image/')) {
+              throw new Error(`Unexpected content-type: ${contentType || 'unknown'}`);
+            }
+
+            const blob = await response.blob();
+            objectUrl = URL.createObjectURL(blob);
+            srcForCanvas = objectUrl;
+            loadedFromBlob = true;
+          } catch (fetchError) {
+            // Fallback to direct URL load. This still works if CORS is correctly configured.
+            console.warn('Photo blob fetch failed, falling back to direct URL load:', fetchError);
+          }
+        }
+
+        let loadedImage: HTMLImageElement;
+        try {
+          loadedImage = await loadImageElement(srcForCanvas, !loadedFromBlob);
+        } catch {
+          loadedImage = await loadImageElement(resolvedUrl, true);
+        }
+
+        if (cancelled) return;
+        loadedImageRef.current = loadedImage;
+        setImageTransform((prev) => {
+          const next = clampImageTransform(loadedImage, PRIMARY_SLOT_RECT, prev);
+          return isSameTransform(prev, next) ? prev : next;
+        });
+        renderBase();
+      } catch (error) {
+        if (cancelled) return;
+        loadedImageRef.current = null;
+        renderBase();
+        console.error('Photo load failed in editor:', resolvedUrl, error);
+      }
     };
 
-    img.onerror = () => {
-      if (cancelled) return;
-      loadedImageRef.current = null;
-      renderBase();
-    };
-
-    img.src = image;
+    load();
 
     return () => {
       cancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
   }, [image, renderBase]);
 

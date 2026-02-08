@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { insertPhotoIntoTemplate } from '@/lib/templateInsertion';
 import { uploadWithRetry } from '@/lib/storageUpload';
 import { api } from '@/lib/api';
+import { normalizeMediaPath, resolveMediaUrl } from '@/lib/mediaUrl';
 
 export default function Editor() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -46,7 +47,7 @@ export default function Editor() {
         return;
       }
       setProject(p);
-      setImage(p.photo_url);
+      setImage(resolveMediaUrl(p.photo_url));
       if (p.frame_color) setFrameColor(p.frame_color);
     }
   };
@@ -78,7 +79,7 @@ export default function Editor() {
       const editedStripBlob = await frameRef.current?.exportStripBlob();
       if (editedStripBlob) {
         const uploadRes = await uploadWithRetry(projectId, editedStripBlob, { kind: 'edited-strip' });
-        editedStripUrl = uploadRes.publicUrl;
+        editedStripUrl = normalizeMediaPath(uploadRes.storageKey) || uploadRes.publicUrl;
       }
 
       if (!editedStripUrl) {
