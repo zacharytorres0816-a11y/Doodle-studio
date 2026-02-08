@@ -1,4 +1,5 @@
 const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8787').replace(/\/$/, '');
+const IS_NGROK = /ngrok(-free)?\.dev$/i.test(new URL(API_URL).hostname);
 
 type QueryValue = string | number | boolean | null | undefined;
 
@@ -21,12 +22,18 @@ function withQuery(path: string, query?: Record<string, QueryValue | QueryValue[
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers = new Headers(options?.headers || {});
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  // ngrok free sometimes serves a browser warning page unless this header is present.
+  if (IS_NGROK) {
+    headers.set('ngrok-skip-browser-warning', 'true');
+  }
+
   const response = await fetch(`${API_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options?.headers || {}),
-    },
     ...options,
+    headers,
   });
 
   const text = await response.text();
@@ -39,6 +46,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     throw new Error(payload?.error || `Request failed (${response.status})`);
+  }
+
+  if (!payload) {
+    const preview = text.slice(0, 120).replace(/\s+/g, ' ');
+    throw new Error(
+      `API returned non-JSON response${preview ? `: ${preview}` : ''}. ` +
+      'Check that backend is running, ngrok is active, and VITE_API_URL matches current tunnel URL.'
+    );
   }
 
   return (payload?.data ?? payload) as T;
@@ -140,6 +155,7 @@ export const api = {
 
       const response = await fetch(`${API_URL}/api/uploads/project-image`, {
         method: 'POST',
+        headers: IS_NGROK ? { 'ngrok-skip-browser-warning': 'true' } : undefined,
         body: formData,
       });
 

@@ -74,9 +74,13 @@ export default function NewOrder() {
           payment_method: paymentMethod,
           gcash_reference: paymentMethod === 'gcash' ? gcashReference : null,
         } as any);
+      if (!order?.id) {
+        throw new Error('Order API returned an empty response. Check backend/ngrok mapping.');
+      }
+      console.log('Order inserted', order.id);
 
       // 2. Auto-create pending project
-      await api.projects.create({
+      const createdProject = await api.projects.create({
           name: `${customerName.trim()} - ${grade} ${section}`,
           order_id: order.id,
           customer_name: customerName.trim(),
@@ -86,6 +90,10 @@ export default function NewOrder() {
           design_type: designType,
           status: 'awaiting_photo',
         } as any);
+      if (!createdProject?.id) {
+        throw new Error('Project API returned an empty response after order creation.');
+      }
+      console.log('Project inserted', createdProject.id);
 
       // 3. Create raffle entries
       const entries = Array.from({ length: totalRaffles }, (_, i) => ({
@@ -97,6 +105,7 @@ export default function NewOrder() {
       }));
 
       await api.raffleEntries.bulkCreate(entries as any);
+      console.log('Raffle entries inserted', entries.length);
 
       toast.success('Order created! Project added to Projects tab.');
 
