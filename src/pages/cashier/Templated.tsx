@@ -108,7 +108,7 @@ export default function Templated() {
         const [x, y] = positions[i];
         if (slot?.photo_url) {
           try {
-            const img = await loadImage(resolveMediaUrl(slot.photo_url) || slot.photo_url);
+            const img = await loadImageForCanvas(resolveMediaUrl(slot.photo_url) || slot.photo_url);
             ctx.drawImage(img, x, y, slotW, slotH);
           } catch {
             // Draw placeholder if image fails
@@ -132,7 +132,6 @@ export default function Templated() {
 
       const filename = `${template.template_number}.png`;
       const blob = await canvasToBlob(canvas);
-      await shareOrDownloadBlob(blob, filename, template.template_number);
 
       // Update template status to downloaded
       const updatedTemplate = await api.printTemplates.update(template.id, {
@@ -152,6 +151,10 @@ export default function Templated() {
       if (uniqueOrderIds.length > 0) {
         await api.orders.bulkUpdate(uniqueOrderIds, { order_status: 'to_print' } as any);
       }
+
+      // Trigger download/share after successful state transition so mobile navigation
+      // cannot interrupt the backend updates.
+      await shareOrDownloadBlob(blob, filename, template.template_number);
 
       toast.success('Template downloaded! Orders moved to To Print.');
       fetchTemplates();
@@ -293,9 +296,15 @@ async function shareOrDownloadBlob(blob: Blob, filename: string, title: string) 
   const url = URL.createObjectURL(blob);
   try {
     if (isIOS) {
-      const opened = window.open(url, '_blank');
+      const opened = window.open(url, '_blank', 'noopener,noreferrer');
       if (!opened) {
-        window.location.href = url;
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
       }
       return;
     }
@@ -312,12 +321,58 @@ async function shareOrDownloadBlob(blob: Blob, filename: string, title: string) 
   }
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
+const NGROK_HOST_RE = /ngrok(-free)?\.dev$/i;
+
+function loadImageElement(src: string, useCors: boolean) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (useCors) img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = reject;
     img.src = src;
   });
+}
+
+async function loadImageForCanvas(src: string): Promise<HTMLImageElement> {
+  let objectUrl: string | null = null;
+  try {
+    if (/^https?:\/\//i.test(src)) {
+      const headers: Record<string, string> = {};
+      try {
+        const host = new URL(src).hostname;
+        if (NGROK_HOST_RE.test(host)) {
+          headers['ngrok-skip-browser-warning'] = 'true';
+        }
+      } catch {
+        // ignore URL parse issues and fall back
+      }
+
+      const response = await fetch(src, {
+        headers,
+        mode: 'cors',
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.startsWith('image/')) {
+        throw new Error(`Unexpected content-type: ${contentType || 'unknown'}`);
+      }
+
+      const blob = await response.blob();
+      objectUrl = URL.createObjectURL(blob);
+      return await loadImageElement(objectUrl, false);
+    }
+
+    return await loadImageElement(src, true);
+  } catch {
+    return await loadImageElement(src, true);
+  } finally {
+    if (objectUrl) {
+      const urlToRevoke = objectUrl;
+      setTimeout(() => URL.revokeObjectURL(urlToRevoke), 1000);
+    }
+  }
 }
