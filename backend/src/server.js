@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import path from 'node:path';
@@ -21,40 +20,26 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsRoot = path.resolve(__dirname, '../uploads');
 
-const allowedOrigins = (process.env.FRONTEND_ORIGIN || '')
-  .split(',')
-  .map((item) => item.trim())
-  .filter(Boolean);
-const allowAllOrigins = allowedOrigins.includes('*');
-const wildcardSuffixes = allowedOrigins
-  .filter((origin) => origin.startsWith('*.'))
-  .map((origin) => origin.slice(1).toLowerCase());
-
-function isAllowedOrigin(origin) {
-  if (!origin) return true;
-  if (allowAllOrigins) return true;
-  if (allowedOrigins.includes(origin)) return true;
-
-  try {
-    const host = new URL(origin).hostname.toLowerCase();
-    return wildcardSuffixes.some((suffix) => host.endsWith(suffix));
-  } catch {
-    return false;
-  }
-}
-
 app.set('trust proxy', true);
 
-app.use(cors({
-  origin(origin, callback) {
-    if (allowedOrigins.length === 0 || isAllowedOrigin(origin)) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error('CORS blocked'));
-  },
-  credentials: true,
-}));
+// Demo-mode CORS: always answer preflight and allow browser requests from the active origin.
+// This avoids intermittent tunnel/browser preflight failures during the 1-day simulation.
+app.use((req, res, next) => {
+  const origin = req.get('origin');
+  const corsOrigin = origin || '*';
+  res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, ngrok-skip-browser-warning');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+
+  next();
+});
 app.use(express.json({ limit: '10mb' }));
 app.use(
   '/uploads',
@@ -431,6 +416,9 @@ app.post('/api/template-slots/bulk', (req, res) => runQuery(res, async () => {
   const rowsSql = [];
   slots.forEach((slot, index) => {
     const clean = sanitizePayload(slot, TEMPLATE_SLOT_COLUMNS);
+    if (!clean.template_id || clean.position === undefined || clean.position === null) {
+      throw new Error(`Invalid slot payload at index ${index}: template_id and position are required`);
+    }
     const base = index * 9;
     rowsSql.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9})`);
     values.push(
@@ -450,6 +438,16 @@ app.post('/api/template-slots/bulk', (req, res) => runQuery(res, async () => {
     INSERT INTO template_slots
       (template_id, position, order_id, project_id, photo_url, student_name, grade, section, package_type)
     VALUES ${rowsSql.join(', ')}
+    ON CONFLICT (template_id, position)
+    DO UPDATE SET
+      order_id = EXCLUDED.order_id,
+      project_id = EXCLUDED.project_id,
+      photo_url = EXCLUDED.photo_url,
+      student_name = EXCLUDED.student_name,
+      grade = EXCLUDED.grade,
+      section = EXCLUDED.section,
+      package_type = EXCLUDED.package_type,
+      inserted_at = now()
     RETURNING *
   `;
 
