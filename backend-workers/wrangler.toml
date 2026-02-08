@@ -20,11 +20,19 @@ bucket_name = "my-app-media-preview"
 
 # Shared non-secret vars
 [vars]
-ALLOWED_ORIGINS = "https://my-app.pages.dev,https://*.pages.dev,http://localhost:5173"
+ALLOWED_ORIGINS = "https://dignia.org,https://www.dignia.org,https://*.pages.dev,http://localhost:5173"
 ENVIRONMENT = "production"
 
 [env.development]
 name = "my-app-backend-dev"
+
+[[env.development.r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "my-app-media"
+
+[[env.development.r2_buckets]]
+binding = "PREVIEW_BUCKET"
+bucket_name = "my-app-media-preview"
 
 [env.development.vars]
 ALLOWED_ORIGINS = "http://localhost:5173,https://*.pages.dev"
@@ -33,6 +41,14 @@ ENVIRONMENT = "development"
 [env.production]
 name = "my-app-backend-prod"
 
+[[env.production.r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "my-app-media"
+
+[[env.production.r2_buckets]]
+binding = "PREVIEW_BUCKET"
+bucket_name = "my-app-media-preview"
+
 [env.production.vars]
-ALLOWED_ORIGINS = "https://my-app.pages.dev,https://*.pages.dev,http://localhost:5173"
+ALLOWED_ORIGINS = "https://dignia.org,https://www.dignia.org,https://*.pages.dev,http://localhost:5173"
 ENVIRONMENT = "production"
