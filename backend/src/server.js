@@ -133,6 +133,31 @@ function buildUpdate(table, payload, whereColumn, whereValue) {
   };
 }
 
+function parseNullableInteger(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+}
+
+function parseRequiredInteger(value) {
+  const parsed = parseNullableInteger(value);
+  if (parsed === null) {
+    throw new Error('Invalid integer value');
+  }
+  return parsed;
+}
+
+function isUuid(value) {
+  if (typeof value !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function normalizeNullableUuid(value) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  return isUuid(raw) ? raw : null;
+}
+
 function resolveOrderBy(table, requested, fallback) {
   const allowed = ORDERABLE_COLUMNS[table] || new Set();
   if (!requested || !allowed.has(requested)) return fallback;
@@ -412,25 +437,50 @@ app.post('/api/template-slots/bulk', (req, res) => runQuery(res, async () => {
     return [];
   }
 
-  const values = [];
-  const rowsSql = [];
+  const normalizedByKey = new Map();
   slots.forEach((slot, index) => {
     const clean = sanitizePayload(slot, TEMPLATE_SLOT_COLUMNS);
-    if (!clean.template_id || clean.position === undefined || clean.position === null) {
-      throw new Error(`Invalid slot payload at index ${index}: template_id and position are required`);
+    const templateId = normalizeNullableUuid(clean.template_id);
+    if (!templateId) {
+      throw new Error(`Invalid slot payload at index ${index}: template_id must be a UUID`);
     }
+
+    const position = parseRequiredInteger(clean.position);
+    if (position < 1 || position > 6) {
+      throw new Error(`Invalid slot payload at index ${index}: position must be between 1 and 6`);
+    }
+
+    normalizedByKey.set(`${templateId}:${position}`, {
+      template_id: templateId,
+      position,
+      order_id: normalizeNullableUuid(clean.order_id),
+      project_id: normalizeNullableUuid(clean.project_id),
+      photo_url: clean.photo_url ? String(clean.photo_url) : null,
+      student_name: clean.student_name ? String(clean.student_name) : null,
+      grade: clean.grade ? String(clean.grade) : null,
+      section: clean.section ? String(clean.section) : null,
+      package_type: parseNullableInteger(clean.package_type),
+    });
+  });
+
+  const normalizedSlots = Array.from(normalizedByKey.values());
+  if (normalizedSlots.length === 0) return [];
+
+  const values = [];
+  const rowsSql = [];
+  normalizedSlots.forEach((clean, index) => {
     const base = index * 9;
     rowsSql.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9})`);
     values.push(
       clean.template_id,
       clean.position,
-      clean.order_id || null,
-      clean.project_id || null,
-      clean.photo_url || null,
-      clean.student_name || null,
-      clean.grade || null,
-      clean.section || null,
-      clean.package_type || null,
+      clean.order_id,
+      clean.project_id,
+      clean.photo_url,
+      clean.student_name,
+      clean.grade,
+      clean.section,
+      clean.package_type,
     );
   });
 

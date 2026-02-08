@@ -22,16 +22,26 @@ function withQuery(path: string, query?: Record<string, QueryValue | QueryValue[
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const method = String(options?.method || 'GET').toUpperCase();
+  const hasBody = options?.body !== undefined && options?.body !== null;
   const headers = new Headers(options?.headers || {});
-  if (!headers.has('Content-Type')) {
+  const isFormDataBody = typeof FormData !== 'undefined' && options?.body instanceof FormData;
+  if (hasBody && !isFormDataBody && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-  // ngrok free sometimes serves a browser warning page unless this header is present.
-  if (IS_NGROK) {
+
+  let requestPath = path;
+  // Avoid forcing CORS preflight on GET; use query-param bypass instead.
+  if (IS_NGROK && method === 'GET' && !hasBody) {
+    const sep = requestPath.includes('?') ? '&' : '?';
+    if (!requestPath.includes('ngrok-skip-browser-warning=')) {
+      requestPath = `${requestPath}${sep}ngrok-skip-browser-warning=true`;
+    }
+  } else if (IS_NGROK) {
     headers.set('ngrok-skip-browser-warning', 'true');
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${API_URL}${requestPath}`, {
     ...options,
     headers,
   });

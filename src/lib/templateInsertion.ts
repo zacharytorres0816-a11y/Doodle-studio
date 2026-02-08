@@ -17,32 +17,35 @@ export async function insertPhotoIntoTemplate(
   packageType: number
 ) {
   const normalizedEditedStripUrl = normalizeStoredMediaUrl(editedStripUrl) || editedStripUrl;
-  const slotsNeeded = packageType === 4 ? 4 : 2;
+  const safePackageType = Number(packageType) === 4 ? 4 : 2;
+  const slotsNeeded = safePackageType;
   let remaining = slotsNeeded;
 
   while (remaining > 0) {
     const template = await getOrCreateActiveTemplate();
-    const available = template.total_slots - template.slots_used;
+    const slotsUsed = Number(template.slots_used ?? 0) || 0;
+    const totalSlots = Number(template.total_slots ?? 6) || 6;
+    const available = Math.max(0, totalSlots - slotsUsed);
     const toFill = Math.min(remaining, available);
 
     const slots = [];
     for (let i = 0; i < toFill; i++) {
       slots.push({
         template_id: template.id,
-        position: template.slots_used + i + 1,
+        position: slotsUsed + i + 1,
         order_id: orderId,
         project_id: projectId,
         photo_url: normalizedEditedStripUrl,
         student_name: studentName,
         grade,
         section,
-        package_type: packageType,
+        package_type: safePackageType,
       });
     }
 
     await api.templateSlots.bulkCreate(slots as any);
 
-    const newSlotsUsed = template.slots_used + toFill;
+    const newSlotsUsed = slotsUsed + toFill;
     const isComplete = newSlotsUsed >= 6;
 
     await api.printTemplates.update(template.id, {

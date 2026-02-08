@@ -350,6 +350,7 @@ async function loadImageForCanvas(src: string): Promise<HTMLImageElement> {
       const response = await fetch(src, {
         headers,
         mode: 'cors',
+        cache: 'no-store',
       });
 
       if (!response.ok) {
@@ -368,7 +369,12 @@ async function loadImageForCanvas(src: string): Promise<HTMLImageElement> {
 
     return await loadImageElement(src, true);
   } catch {
-    return await loadImageElement(src, true);
+    try {
+      return await loadImageElement(src, true);
+    } catch {
+      // Last resort for non-CORS image responses; this can still render in many browsers.
+      return await loadImageElement(src, false);
+    }
   } finally {
     if (objectUrl) {
       const urlToRevoke = objectUrl;
