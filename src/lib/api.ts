@@ -39,30 +39,46 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers.set('Content-Type', 'application/json');
   }
 
-  let requestPath = path;
-  // Avoid forcing CORS preflight on GET; use query-param bypass instead.
-  if (IS_NGROK && method === 'GET' && !hasBody) {
-    const sep = requestPath.includes('?') ? '&' : '?';
-    if (!requestPath.includes('ngrok-skip-browser-warning=')) {
-      requestPath = `${requestPath}${sep}ngrok-skip-browser-warning=true`;
-    }
-  } else if (IS_NGROK) {
+  if (IS_NGROK) {
+    // Force ngrok browser-warning bypass on every API request.
     headers.set('ngrok-skip-browser-warning', 'true');
   }
 
-  const finalUrl = `${API_URL}${requestPath}`;
-  const response = await fetch(finalUrl, {
+  const finalUrl = `${API_URL}${path}`;
+  const fetchInit: RequestInit = {
     ...options,
     headers,
-  });
+    mode: 'cors',
+    cache: IS_NGROK ? 'no-store' : options?.cache,
+  };
 
-  const text = await response.text();
-  const contentType = response.headers.get('content-type') || '';
+  let response = await fetch(finalUrl, fetchInit);
+
+  let text = await response.text();
+  let contentType = response.headers.get('content-type') || '';
   let payload: any = null;
-  try {
-    payload = text ? JSON.parse(text) : null;
-  } catch {
-    payload = null;
+
+  const parsePayload = () => {
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = null;
+    }
+  };
+
+  const isHtmlLike = () =>
+    contentType.includes('text/html') || /^<!doctype html>/i.test(text) || /ERR_NGROK_6024/i.test(text);
+
+  parsePayload();
+
+  // ngrok free can return an interstitial HTML page for browser-like traffic.
+  // Retry once with a cache-buster to avoid stale/cached HTML being reused.
+  if (IS_NGROK && response.ok && !payload && isHtmlLike()) {
+    const retryUrl = `${finalUrl}${finalUrl.includes('?') ? '&' : '?'}_ngrok_retry=${Date.now()}`;
+    response = await fetch(retryUrl, fetchInit);
+    text = await response.text();
+    contentType = response.headers.get('content-type') || '';
+    parsePayload();
   }
 
   if (!response.ok) {
