@@ -179,6 +179,12 @@ export default function Templated() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {templates.map((tmpl) => (
+            (() => {
+              const totalSlots = Number(tmpl.total_slots ?? 6) || 6;
+              const effectiveSlotsUsed = Math.max(Number(tmpl.slots_used ?? 0) || 0, tmpl.slots.length);
+              const isComplete = tmpl.status === 'complete' || effectiveSlotsUsed >= totalSlots;
+
+              return (
             <div key={tmpl.id} className="panel p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -186,9 +192,9 @@ export default function Templated() {
                   <span className="font-medium text-foreground">{tmpl.template_number}</span>
                 </div>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${
-                  tmpl.status === 'complete' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
+                  isComplete ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
                 }`}>
-                  {tmpl.status === 'complete' ? `COMPLETE (${tmpl.slots_used}/6)` : `FILLING (${tmpl.slots_used}/6)`}
+                  {isComplete ? `COMPLETE (${effectiveSlotsUsed}/${totalSlots})` : `FILLING (${effectiveSlotsUsed}/${totalSlots})`}
                 </span>
               </div>
 
@@ -236,7 +242,7 @@ export default function Templated() {
                 })}
               </div>
 
-              {tmpl.status === 'complete' && (
+              {isComplete && (
                 <Button
                   className="w-full bg-accent hover:bg-accent/90 text-accent-foreground"
                   onClick={() => handleDownload(tmpl)}
@@ -247,6 +253,8 @@ export default function Templated() {
                 </Button>
               )}
             </div>
+              );
+            })()
           ))}
         </div>
       )}

@@ -42,16 +42,37 @@ export async function insertPhotoIntoTemplate(
 
   while (remaining > 0) {
     const template = await getOrCreateActiveTemplate();
-    const slotsUsed = Number(template.slots_used ?? 0) || 0;
     const totalSlots = Number(template.total_slots ?? 6) || 6;
-    const available = Math.max(0, totalSlots - slotsUsed);
-    const toFill = Math.min(remaining, available);
+    const existingSlots = await api.templateSlots.list({
+      templateIds: [template.id],
+      orderBy: 'position',
+      orderDir: 'asc',
+    });
+    const occupied = new Set(
+      (existingSlots || [])
+        .map((slot: any) => Number(slot?.position))
+        .filter((position) => Number.isFinite(position) && position >= 1 && position <= totalSlots),
+    );
+    const availablePositions = Array.from({ length: totalSlots }, (_, i) => i + 1).filter(
+      (position) => !occupied.has(position),
+    );
+
+    if (availablePositions.length === 0) {
+      await api.printTemplates.update(template.id, {
+        slots_used: totalSlots,
+        status: 'complete',
+        completed_at: new Date().toISOString(),
+      } as any);
+      continue;
+    }
+
+    const toFill = Math.min(remaining, availablePositions.length);
 
     const slots = [];
     for (let i = 0; i < toFill; i++) {
       slots.push({
         template_id: template.id,
-        position: slotsUsed + i + 1,
+        position: availablePositions[i],
         order_id: orderId,
         project_id: projectId,
         photo_url: normalizedEditedStripUrl,
@@ -64,8 +85,8 @@ export async function insertPhotoIntoTemplate(
 
     await api.templateSlots.bulkCreate(slots as any);
 
-    const newSlotsUsed = slotsUsed + toFill;
-    const isComplete = newSlotsUsed >= 6;
+    const newSlotsUsed = occupied.size + toFill;
+    const isComplete = newSlotsUsed >= totalSlots;
 
     await api.printTemplates.update(template.id, {
         slots_used: newSlotsUsed,
@@ -117,7 +138,7 @@ async function upsertExistingOrderSlots(params: {
   }
 
   const activeTemplates = await api.printTemplates.list({
-    statuses: ['filling', 'complete', 'downloaded'],
+    statuses: ['filling', 'complete'],
     orderBy: 'created_at',
     orderDir: 'desc',
   });
@@ -126,6 +147,7 @@ async function upsertExistingOrderSlots(params: {
   const prioritize = (slot: TemplateSlot) => (activeTemplateIds.has(slot.template_id) ? 0 : 1);
   const deduped = new Map<string, TemplateSlot>();
   [...normalizedExisting]
+    .filter((slot) => activeTemplateIds.has(slot.template_id))
     .sort((a, b) => prioritize(a) - prioritize(b))
     .forEach((slot) => {
       const key = `${slot.template_id}:${slot.position}`;
