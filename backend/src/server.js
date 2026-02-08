@@ -419,11 +419,15 @@ app.get('/api/template-slots/printed-summary', (req, res) => runQuery(res, async
   const { rows } = await pool.query(
     `SELECT
       ts.order_id,
-      COUNT(*)::int AS printed_count,
+      LEAST(
+        COUNT(*)::int,
+        COALESCE(MAX(o.package_type), COUNT(*))::int
+      ) AS printed_count,
       COALESCE(ARRAY_AGG(DISTINCT pt.template_number), ARRAY[]::text[]) AS template_numbers,
       MAX(pt.printed_at) AS printed_at
      FROM template_slots ts
      JOIN print_templates pt ON pt.id = ts.template_id
+     LEFT JOIN orders o ON o.id = ts.order_id
      WHERE pt.status = 'printed' AND ts.order_id = ANY($1::uuid[])
      GROUP BY ts.order_id`,
     [orderIds],

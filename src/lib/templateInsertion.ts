@@ -1,5 +1,5 @@
 import { api } from '@/lib/api';
-import { PrintTemplate } from '@/types/database';
+import { PrintTemplate, TemplateSlot } from '@/types/database';
 import { normalizeStoredMediaUrl } from '@/lib/mediaUrl';
 
 /**
@@ -19,7 +19,26 @@ export async function insertPhotoIntoTemplate(
   const normalizedEditedStripUrl = normalizeStoredMediaUrl(editedStripUrl) || editedStripUrl;
   const safePackageType = Number(packageType) === 4 ? 4 : 2;
   const slotsNeeded = safePackageType;
-  let remaining = slotsNeeded;
+
+  // Idempotency guard:
+  // if this order already has assigned slots, update those slots first
+  // instead of creating additional rows on repeated Save clicks.
+  const reusedSlotCount = await upsertExistingOrderSlots({
+    orderId,
+    projectId,
+    photoUrl: normalizedEditedStripUrl,
+    studentName,
+    grade,
+    section,
+    packageType: safePackageType,
+    slotsNeeded,
+  });
+
+  if (reusedSlotCount >= slotsNeeded) {
+    return;
+  }
+
+  let remaining = slotsNeeded - reusedSlotCount;
 
   while (remaining > 0) {
     const template = await getOrCreateActiveTemplate();
@@ -56,6 +75,83 @@ export async function insertPhotoIntoTemplate(
 
     remaining -= toFill;
   }
+}
+
+async function upsertExistingOrderSlots(params: {
+  orderId: string;
+  projectId: string;
+  photoUrl: string;
+  studentName: string;
+  grade: string;
+  section: string;
+  packageType: number;
+  slotsNeeded: number;
+}) {
+  const {
+    orderId,
+    projectId,
+    photoUrl,
+    studentName,
+    grade,
+    section,
+    packageType,
+    slotsNeeded,
+  } = params;
+
+  const existingSlots = await api.templateSlots.list({
+    orderIds: [orderId],
+    orderBy: 'inserted_at',
+    orderDir: 'asc',
+  });
+
+  const normalizedExisting = (existingSlots || [])
+    .filter((slot: any) => slot?.template_id && slot?.position !== undefined && slot?.position !== null)
+    .map((slot: any) => ({
+      ...slot,
+      position: Number(slot.position),
+    }))
+    .filter((slot: any) => Number.isFinite(slot.position) && slot.position >= 1 && slot.position <= 6) as TemplateSlot[];
+
+  if (normalizedExisting.length === 0) {
+    return 0;
+  }
+
+  const activeTemplates = await api.printTemplates.list({
+    statuses: ['filling', 'complete', 'downloaded'],
+    orderBy: 'created_at',
+    orderDir: 'desc',
+  });
+  const activeTemplateIds = new Set((activeTemplates || []).map((t: any) => t.id));
+
+  const prioritize = (slot: TemplateSlot) => (activeTemplateIds.has(slot.template_id) ? 0 : 1);
+  const deduped = new Map<string, TemplateSlot>();
+  [...normalizedExisting]
+    .sort((a, b) => prioritize(a) - prioritize(b))
+    .forEach((slot) => {
+      const key = `${slot.template_id}:${slot.position}`;
+      if (!deduped.has(key)) deduped.set(key, slot);
+    });
+
+  const slotsToReuse = Array.from(deduped.values()).slice(0, slotsNeeded);
+  if (slotsToReuse.length === 0) {
+    return 0;
+  }
+
+  await api.templateSlots.bulkCreate(
+    slotsToReuse.map((slot) => ({
+      template_id: slot.template_id,
+      position: Number(slot.position),
+      order_id: orderId,
+      project_id: projectId,
+      photo_url: photoUrl,
+      student_name: studentName,
+      grade,
+      section,
+      package_type: packageType,
+    })) as any,
+  );
+
+  return slotsToReuse.length;
 }
 
 async function getOrCreateActiveTemplate(): Promise<PrintTemplate> {
