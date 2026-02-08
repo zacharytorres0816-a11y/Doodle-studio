@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
 import { PrintTemplate } from '@/types/database';
+import { normalizeStoredMediaUrl } from '@/lib/mediaUrl';
 
 /**
  * Inserts a framed photo into the A4 template system.
@@ -15,6 +16,7 @@ export async function insertPhotoIntoTemplate(
   section: string,
   packageType: number
 ) {
+  const normalizedEditedStripUrl = normalizeStoredMediaUrl(editedStripUrl) || editedStripUrl;
   const slotsNeeded = packageType === 4 ? 4 : 2;
   let remaining = slotsNeeded;
 
@@ -30,7 +32,7 @@ export async function insertPhotoIntoTemplate(
         position: template.slots_used + i + 1,
         order_id: orderId,
         project_id: projectId,
-        photo_url: editedStripUrl,
+        photo_url: normalizedEditedStripUrl,
         student_name: studentName,
         grade,
         section,

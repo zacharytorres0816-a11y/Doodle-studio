@@ -130,77 +130,18 @@ export default function Templated() {
         ctx.strokeRect(x + 0.5, y + 0.5, slotW - 1, slotH - 1);
       }
 
-      // Download / Share (mobile-friendly)
-      canvas.toBlob(async (blob) => {
-        const filename = `${template.template_number}.png`;
-        const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-        const isIOS = /iP(ad|hone|od)/.test(userAgent);
-        const isAndroid = /Android/i.test(userAgent);
-        const isMobile = isIOS || isAndroid;
-
-        if (blob) {
-          const file = new File([blob], filename, { type: 'image/png' });
-          const canShareFiles = isMobile
-            && typeof navigator !== 'undefined'
-            && 'canShare' in navigator
-            && (navigator as any).canShare({ files: [file] });
-
-          if (isMobile && typeof navigator !== 'undefined' && 'share' in navigator && canShareFiles) {
-            try {
-              await (navigator as any).share({
-                files: [file],
-                title: template.template_number,
-              });
-              return;
-            } catch {
-              // fall back to normal download
-            }
-          }
-
-          const url = URL.createObjectURL(blob);
-          if (isIOS) {
-            const opened = window.open(url, '_blank');
-            if (!opened) {
-              window.location.href = url;
-            }
-            setTimeout(() => URL.revokeObjectURL(url), 5000);
-            return;
-          }
-
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = filename;
-          a.rel = 'noopener';
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-          return;
-        }
-
-        // Fallback: dataURL (synchronous) for stricter browsers
-        const dataUrl = canvas.toDataURL('image/png');
-        if (isIOS) {
-          const opened = window.open(dataUrl, '_blank');
-          if (!opened) {
-            window.location.href = dataUrl;
-          }
-          return;
-        }
-        const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = filename;
-        a.rel = 'noopener';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      }, 'image/png');
+      const filename = `${template.template_number}.png`;
+      const blob = await canvasToBlob(canvas);
+      await shareOrDownloadBlob(blob, filename, template.template_number);
 
       // Update template status to downloaded
-      await api.printTemplates.update(template.id, {
+      const updatedTemplate = await api.printTemplates.update(template.id, {
         status: 'downloaded',
         downloaded_at: new Date().toISOString(),
       } as any);
+      if (!updatedTemplate?.id) {
+        throw new Error('Template status update failed');
+      }
 
       // Move all orders in this template to 'to_print' status
       const orderIds = template.slots
@@ -308,6 +249,67 @@ export default function Templated() {
       )}
     </div>
   );
+}
+
+async function canvasToBlob(canvas: HTMLCanvasElement) {
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+      reject(new Error('Could not generate template PNG'));
+    }, 'image/png');
+  });
+}
+
+async function shareOrDownloadBlob(blob: Blob, filename: string, title: string) {
+  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const isIOS = /iP(ad|hone|od)/.test(userAgent);
+  const isAndroid = /Android/i.test(userAgent);
+  const isMobile = isIOS || isAndroid;
+
+  if (typeof File !== 'undefined') {
+    const file = new File([blob], filename, { type: 'image/png' });
+    const canShareFiles = isMobile
+      && typeof navigator !== 'undefined'
+      && 'share' in navigator
+      && 'canShare' in navigator
+      && (navigator as any).canShare({ files: [file] });
+
+    if (canShareFiles) {
+      try {
+        await (navigator as any).share({
+          files: [file],
+          title,
+        });
+        return;
+      } catch {
+        // fall through to browser download flow
+      }
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  try {
+    if (isIOS) {
+      const opened = window.open(url, '_blank');
+      if (!opened) {
+        window.location.href = url;
+      }
+      return;
+    }
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
