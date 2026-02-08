@@ -19,8 +19,14 @@ export default function Projects() {
   }, []);
 
   const fetchProjects = async () => {
-    const data = await api.projects.list({ orderBy: 'created_at', orderDir: 'desc' });
-    setProjects(data as unknown as Project[]);
+    try {
+      const data = await api.projects.list({ orderBy: 'created_at', orderDir: 'desc' });
+      setProjects(Array.isArray(data) ? (data as unknown as Project[]) : []);
+    } catch (error) {
+      console.error('Failed to fetch projects:', error);
+      setProjects([]);
+      toast.error('Failed to load projects');
+    }
     setLoading(false);
   };
 

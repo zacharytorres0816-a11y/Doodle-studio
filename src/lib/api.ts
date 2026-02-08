@@ -44,12 +44,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return (payload?.data ?? payload) as T;
 }
 
+function ensureArray<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 export const api = {
   health: () => request<{ ok: boolean }>('/api/health'),
 
   projects: {
-    list: (query?: { status?: string; orderBy?: string; orderDir?: 'asc' | 'desc' }) =>
-      request<any[]>(withPath('/api/projects', query)),
+    list: async (query?: { status?: string; orderBy?: string; orderDir?: 'asc' | 'desc' }) =>
+      ensureArray(await request<any[]>(withPath('/api/projects', query))),
     get: (id: string) => request<any>(`/api/projects/${id}`),
     create: (payload: Record<string, unknown>) =>
       request<any>('/api/projects', { method: 'POST', body: JSON.stringify(payload) }),
@@ -59,13 +63,13 @@ export const api = {
   },
 
   orders: {
-    list: (query?: {
+    list: async (query?: {
       ids?: string[];
       status?: string;
       statuses?: string[];
       orderBy?: string;
       orderDir?: 'asc' | 'desc';
-    }) => request<any[]>(withPath('/api/orders', query)),
+    }) => ensureArray(await request<any[]>(withPath('/api/orders', query))),
     create: (payload: Record<string, unknown>) =>
       request<any>('/api/orders', { method: 'POST', body: JSON.stringify(payload) }),
     update: (id: string, payload: Record<string, unknown>) =>
@@ -78,19 +82,19 @@ export const api = {
   },
 
   templates: {
-    list: (query?: { orderBy?: string; orderDir?: 'asc' | 'desc' }) =>
-      request<any[]>(withPath('/api/templates', query)),
+    list: async (query?: { orderBy?: string; orderDir?: 'asc' | 'desc' }) =>
+      ensureArray(await request<any[]>(withPath('/api/templates', query))),
     create: (payload: Record<string, unknown>) =>
       request<any>('/api/templates', { method: 'POST', body: JSON.stringify(payload) }),
   },
 
   printTemplates: {
-    list: (query?: {
+    list: async (query?: {
       status?: string;
       statuses?: string[];
       orderBy?: string;
       orderDir?: 'asc' | 'desc';
-    }) => request<any[]>(withPath('/api/print-templates', query)),
+    }) => ensureArray(await request<any[]>(withPath('/api/print-templates', query))),
     count: () => request<{ count: number }>('/api/print-templates/count'),
     create: (payload: Record<string, unknown>) =>
       request<any>('/api/print-templates', { method: 'POST', body: JSON.stringify(payload) }),
@@ -99,20 +103,21 @@ export const api = {
   },
 
   templateSlots: {
-    list: (query?: {
+    list: async (query?: {
       templateIds?: string[];
       orderIds?: string[];
       orderBy?: string;
       orderDir?: 'asc' | 'desc';
-    }) => request<any[]>(withPath('/api/template-slots', query)),
+    }) => ensureArray(await request<any[]>(withPath('/api/template-slots', query))),
     bulkCreate: (slots: Record<string, unknown>[]) =>
       request<any[]>('/api/template-slots/bulk', { method: 'POST', body: JSON.stringify({ slots }) }),
-    printedSummary: (orderIds: string[]) =>
-      request<any[]>(withPath('/api/template-slots/printed-summary', { orderIds })),
+    printedSummary: async (orderIds: string[]) =>
+      ensureArray(await request<any[]>(withPath('/api/template-slots/printed-summary', { orderIds }))),
   },
 
   raffleEntries: {
-    list: (query?: { isWinner?: boolean }) => request<any[]>(withPath('/api/raffle-entries', query)),
+    list: async (query?: { isWinner?: boolean }) =>
+      ensureArray(await request<any[]>(withPath('/api/raffle-entries', query))),
     bulkCreate: (entries: Record<string, unknown>[]) =>
       request<any[]>('/api/raffle-entries/bulk', { method: 'POST', body: JSON.stringify({ entries }) }),
     update: (id: string, payload: Record<string, unknown>) =>
@@ -120,7 +125,7 @@ export const api = {
   },
 
   raffleWinners: {
-    list: () => request<any[]>('/api/raffle-winners'),
+    list: async () => ensureArray(await request<any[]>('/api/raffle-winners')),
     create: (payload: Record<string, unknown>) =>
       request<any>('/api/raffle-winners', { method: 'POST', body: JSON.stringify(payload) }),
   },
