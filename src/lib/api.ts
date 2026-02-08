@@ -167,6 +167,11 @@ export const api = {
     }) => ensureArray(await request<any[]>(withPath('/api/template-slots', query))),
     bulkCreate: (slots: Record<string, unknown>[]) =>
       request<any[]>('/api/template-slots/bulk', { method: 'POST', body: JSON.stringify({ slots }) }),
+    deleteMany: (ids: string[]) =>
+      request<{ deleted: number; rows: { id: string; template_id: string }[] }>(
+        withPath('/api/template-slots', { ids }),
+        { method: 'DELETE' },
+      ),
     printedSummary: async (orderIds: string[]) =>
       ensureArray(await request<any[]>(withPath('/api/template-slots/printed-summary', { orderIds }))),
   },

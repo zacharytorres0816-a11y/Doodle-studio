@@ -98,6 +98,42 @@ export async function insertPhotoIntoTemplate(
   }
 }
 
+async function syncTemplateUsage(templateIds: string[]) {
+  const uniqueTemplateIds = [...new Set(templateIds.filter(Boolean))];
+  if (uniqueTemplateIds.length === 0) return;
+
+  const templates = await api.printTemplates.list({
+    statuses: ['filling', 'complete'],
+    orderBy: 'created_at',
+    orderDir: 'desc',
+  });
+  const trackedTemplates = (templates || []).filter((t: any) => uniqueTemplateIds.includes(t.id));
+  if (trackedTemplates.length === 0) return;
+
+  const slots = await api.templateSlots.list({
+    templateIds: trackedTemplates.map((t: any) => t.id),
+    orderBy: 'position',
+    orderDir: 'asc',
+  });
+  const counts = new Map<string, number>();
+  (slots || []).forEach((slot: any) => {
+    counts.set(slot.template_id, (counts.get(slot.template_id) || 0) + 1);
+  });
+
+  await Promise.all(
+    trackedTemplates.map((template: any) => {
+      const totalSlots = Number(template.total_slots ?? 6) || 6;
+      const used = counts.get(template.id) || 0;
+      const complete = used >= totalSlots;
+      return api.printTemplates.update(template.id, {
+        slots_used: used,
+        status: complete ? 'complete' : 'filling',
+        completed_at: complete ? (template.completed_at || new Date().toISOString()) : null,
+      } as any);
+    }),
+  );
+}
+
 async function upsertExistingOrderSlots(params: {
   orderId: string;
   projectId: string;
@@ -155,7 +191,16 @@ async function upsertExistingOrderSlots(params: {
     });
 
   const slotsToReuse = Array.from(deduped.values()).slice(0, slotsNeeded);
+  const slotsToDrop = Array.from(deduped.values()).slice(slotsNeeded);
+  const touchedTemplates = new Set<string>();
+
+  slotsToDrop.forEach((slot) => touchedTemplates.add(slot.template_id));
+  if (slotsToDrop.length > 0) {
+    await api.templateSlots.deleteMany(slotsToDrop.map((slot) => slot.id));
+  }
+
   if (slotsToReuse.length === 0) {
+    await syncTemplateUsage(Array.from(touchedTemplates));
     return 0;
   }
 
@@ -172,6 +217,9 @@ async function upsertExistingOrderSlots(params: {
       package_type: packageType,
     })) as any,
   );
+
+  slotsToReuse.forEach((slot) => touchedTemplates.add(slot.template_id));
+  await syncTemplateUsage(Array.from(touchedTemplates));
 
   return slotsToReuse.length;
 }

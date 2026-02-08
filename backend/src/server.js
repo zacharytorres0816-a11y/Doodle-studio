@@ -435,6 +435,19 @@ app.get('/api/template-slots/printed-summary', (req, res) => runQuery(res, async
   return rows;
 }));
 
+app.delete('/api/template-slots', (req, res) => runQuery(res, async () => {
+  const ids = parseList(req.query.ids);
+  if (ids.length === 0) {
+    return { deleted: 0, rows: [] };
+  }
+
+  const { rows } = await pool.query(
+    'DELETE FROM template_slots WHERE id = ANY($1::uuid[]) RETURNING id, template_id',
+    [ids],
+  );
+  return { deleted: rows.length, rows };
+}));
+
 app.post('/api/template-slots/bulk', (req, res) => runQuery(res, async () => {
   const slots = Array.isArray(req.body?.slots) ? req.body.slots : [];
   if (slots.length === 0) {
