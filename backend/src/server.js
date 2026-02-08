@@ -26,6 +26,8 @@ const allowedOrigins = (process.env.FRONTEND_ORIGIN || '')
   .map((item) => item.trim())
   .filter(Boolean);
 
+app.set('trust proxy', true);
+
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
@@ -40,6 +42,28 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/uploads', express.static(uploadsRoot));
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+
+function resolvePublicBaseUrl(req) {
+  const configured = String(process.env.PUBLIC_BASE_URL || '').trim();
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      const host = url.hostname.toLowerCase();
+      // Ignore localhost-style PUBLIC_BASE_URL because it breaks other devices.
+      if (!['localhost', '127.0.0.1', '::1'].includes(host)) {
+        return configured.replace(/\/+$/, '');
+      }
+    } catch {
+      // fall through to forwarded headers
+    }
+  }
+
+  const forwardedProto = (req.get('x-forwarded-proto') || '').split(',')[0].trim();
+  const forwardedHost = (req.get('x-forwarded-host') || '').split(',')[0].trim();
+  const protocol = forwardedProto || req.protocol;
+  const host = forwardedHost || req.get('host');
+  return `${protocol}://${host}`;
+}
 
 const ORDERABLE_COLUMNS = {
   projects: new Set(['created_at', 'updated_at', 'photo_uploaded_at', 'last_edited_at']),
@@ -501,7 +525,7 @@ app.post('/api/uploads/project-image', upload.single('file'), async (req, res) =
     await writeFile(fullPath, req.file.buffer);
 
     const storageKey = `project-images/${projectId}/${fileName}`;
-    const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const baseUrl = resolvePublicBaseUrl(req);
 
     res.json({
       data: {

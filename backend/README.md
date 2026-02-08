@@ -12,7 +12,8 @@ Edit `backend/.env`:
 
 - `DATABASE_URL=postgresql://USER:PASSWORD@127.0.0.1:5432/DB_NAME`
 - `FRONTEND_ORIGIN=http://localhost:8080` (comma-separated for multiple origins)
-- `PUBLIC_BASE_URL=http://localhost:8787` (or tunnel URL)
+- `PUBLIC_BASE_URL=` (recommended blank; backend auto-detects tunnel/custom domain via forwarded headers)
+  or set a fixed public API host such as `https://<your-tunnel-url>`
 
 ## 2) Run
 
