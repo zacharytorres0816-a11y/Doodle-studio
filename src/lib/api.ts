@@ -1,5 +1,14 @@
-const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8787').replace(/\/$/, '');
-const IS_NGROK = /ngrok(-free)?\.dev$/i.test(new URL(API_URL).hostname);
+const RAW_API_URL = String(import.meta.env.VITE_API_URL || 'http://localhost:8787').trim();
+// Accept either "...", ".../", or ".../api" in env to avoid accidental "/api/api/*" requests.
+const API_URL = RAW_API_URL.replace(/\/+$/, '').replace(/\/api$/i, '');
+const API_HOST = (() => {
+  try {
+    return new URL(API_URL).hostname;
+  } catch {
+    return '';
+  }
+})();
+const IS_NGROK = /ngrok(-free)?\.dev$/i.test(API_HOST);
 
 type QueryValue = string | number | boolean | null | undefined;
 
@@ -41,12 +50,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers.set('ngrok-skip-browser-warning', 'true');
   }
 
-  const response = await fetch(`${API_URL}${requestPath}`, {
+  const finalUrl = `${API_URL}${requestPath}`;
+  const response = await fetch(finalUrl, {
     ...options,
     headers,
   });
 
   const text = await response.text();
+  const contentType = response.headers.get('content-type') || '';
   let payload: any = null;
   try {
     payload = text ? JSON.parse(text) : null;
@@ -59,10 +70,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   if (!payload) {
-    const preview = text.slice(0, 120).replace(/\s+/g, ' ');
+    const preview = text.slice(0, 160).replace(/\s+/g, ' ');
+    const isHtml = contentType.includes('text/html') || /^<!doctype html>/i.test(text);
+    const hint = isHtml
+      ? ` Received HTML from ${finalUrl}; this usually means VITE_API_URL is wrong or ngrok/backend is down.`
+      : '';
     throw new Error(
       `API returned non-JSON response${preview ? `: ${preview}` : ''}. ` +
-      'Check that backend is running, ngrok is active, and VITE_API_URL matches current tunnel URL.'
+      `Check that backend is running, ngrok is active, and VITE_API_URL matches current tunnel URL.${hint}`
     );
   }
 
